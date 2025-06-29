@@ -27,12 +27,13 @@
 - **Bypass Mock Detection**: It forcibly sets `isFromMockProvider` to `false` and uses hidden APIs to prevent apps from detecting that the location is fake.
 - **No Mock Location Permission Needed**: You do not need to enable "Allow mock locations" in developer settings.
 - **System Service Level**: Hooks are applied at both app and system service levels for maximum reliability.
+(<a href="Screenshot">Screenshot</a>)
 
 ---
 
 ## 🏁 Requirements
 
-- **Android 11 (API 30) or higher** (minSdk = 30, targetSdk = 34)
+- **Android 11 (API 30) or higher** (Tested on android 16) (minSdk = 30, targetSdk = 34)
 - **Rooted device**
 - **Xposed Framework** (LSPosed or EdXposed recommended)
 
@@ -48,7 +49,7 @@
 ## 🚀 Installation
 
 1. **Install LSPosed/EdXposed** on your device.
-2. **Build and install the APK** (see below).
+2. **Install GPS Rider APK** (see below).
 3. **Enable the module in LSPosed/EdXposed Manager**.
 4. **Reboot your device**.
 5. **Open GPS Rider and set your desired location**.
