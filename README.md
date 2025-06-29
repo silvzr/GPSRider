@@ -27,7 +27,7 @@
 - **Bypass Mock Detection**: It forcibly sets `isFromMockProvider` to `false` and uses hidden APIs to prevent apps from detecting that the location is fake.
 - **No Mock Location Permission Needed**: You do not need to enable "Allow mock locations" in developer settings.
 - **System Service Level**: Hooks are applied at both app and system service levels for maximum reliability.
-(<a href="Screenshot">Screenshot</a>)
+(<a href="screenshot">Screenshot</a>)
 
 ---
 
