@@ -84,12 +84,7 @@ dependencies {
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
     
-    // Google Maps dependencies
-    implementation("com.google.android.gms:play-services-maps:18.2.0")
-    implementation("com.google.android.gms:play-services-location:21.1.0")
-    implementation("com.google.maps.android:maps-compose:4.3.0")
-    implementation("com.google.maps.android:maps-compose-utils:4.3.0")
-    implementation("com.google.maps.android:maps-compose-widgets:4.3.0")
+    implementation("com.utsman.osmandcompose:osm-compose:0.0.6")
     
     implementation(libs.androidx.material.icons.extended)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

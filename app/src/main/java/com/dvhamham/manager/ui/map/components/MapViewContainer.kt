@@ -1,6 +1,5 @@
 package com.dvhamham.manager.ui.map.components
 
-import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,16 +20,12 @@ import com.dvhamham.data.DEFAULT_MAP_ZOOM
 import com.dvhamham.data.USER_LOCATION_ZOOM
 import com.dvhamham.data.WORLD_MAP_ZOOM
 import com.dvhamham.data.model.LatLng
-import com.dvhamham.R
 import com.dvhamham.manager.ui.map.DialogState
 import com.dvhamham.manager.ui.map.LoadingState
 import com.dvhamham.manager.ui.map.MapViewModel
 import com.dvhamham.manager.ui.theme.LocalThemeManager
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLng as GoogleLatLng
-import com.google.android.gms.maps.model.MapStyleOptions
-import com.google.maps.android.compose.*
+import com.utsman.osmandcompose.*
+import org.osmdroid.util.GeoPoint
 
 @Composable
 fun MapViewContainer(
@@ -48,80 +43,91 @@ fun MapViewContainer(
     val mapZoom = uiState.mapZoom
     val userLocation = uiState.userLocation
 
-    // Convert LatLng to Google LatLng for Google Maps
-    val lastClickedGoogleLatLng = lastClickedLocation?.let { 
-        GoogleLatLng(it.latitude, it.longitude) 
+    // Convert LatLng to GeoPoint for OSM
+    val lastClickedGeoPoint = lastClickedLocation?.let { 
+        GeoPoint(it.latitude, it.longitude) 
     }
-    val userGoogleLatLng = userLocation?.let { 
-        GoogleLatLng(it.latitude, it.longitude) 
+    val userGeoPoint = userLocation?.let { 
+        GeoPoint(it.latitude, it.longitude) 
     }
 
     // Handle map events and updates
-    val cameraPositionState = rememberCameraPositionState()
-    HandleCenterMapEvent(userGoogleLatLng, mapViewModel, cameraPositionState)
-    HandleGoToPointEvent(mapViewModel, cameraPositionState)
-    CenterMapOnUserLocation(userGoogleLatLng, lastClickedGoogleLatLng, mapZoom, mapViewModel)
+    var cameraState by remember { 
+        mutableStateOf(
+            CameraState(
+                geoPoint = lastClickedGeoPoint ?: userGeoPoint ?: GeoPoint(0.0, 0.0),
+                zoom = (mapZoom ?: DEFAULT_MAP_ZOOM).toFloat()
+            )
+        )
+    }
+
+    HandleCenterMapEvent(userGeoPoint, mapViewModel, cameraState) { newCameraState ->
+        cameraState = newCameraState
+    }
+    HandleGoToPointEvent(mapViewModel, cameraState) { newCameraState ->
+        cameraState = newCameraState
+    }
 
     // Display loading spinner or MapView
     if (loadingState == LoadingState.Loading) {
         LoadingSpinner()
     } else {
-        DisplayGoogleMap(
-            lastClickedGoogleLatLng = lastClickedGoogleLatLng,
-            userGoogleLatLng = userGoogleLatLng,
+        DisplayOSMMap(
+            lastClickedGeoPoint = lastClickedGeoPoint,
+            userGeoPoint = userGeoPoint,
             isDarkTheme = isDarkTheme,
             isPlaying = isPlaying,
-            onMapClick = { googleLatLng ->
-                val latLng = LatLng(googleLatLng.latitude, googleLatLng.longitude)
+            onMapClick = { geoPoint ->
+                val latLng = LatLng(geoPoint.latitude, geoPoint.longitude)
                 mapViewModel.updateClickedLocation(latLng)
             },
             mapViewModel = mapViewModel,
-            cameraPositionState = cameraPositionState
+            cameraState = cameraState,
+            onCameraChange = { newCameraState ->
+                cameraState = newCameraState
+                mapViewModel.updateMapZoom(newCameraState.zoom.toDouble())
+                mapViewModel.updateMapPosition(
+                    newCameraState.geoPoint.latitude,
+                    newCameraState.geoPoint.longitude
+                )
+            }
         )
     }
 }
 
 @Composable
 private fun HandleCenterMapEvent(
-    userGoogleLatLng: GoogleLatLng?,
+    userGeoPoint: GeoPoint?,
     mapViewModel: MapViewModel,
-    cameraPositionState: CameraPositionState
+    cameraState: CameraState,
+    onCameraChange: (CameraState) -> Unit
 ) {
     val context = LocalContext.current
-    val uiState by mapViewModel.uiState.collectAsStateWithLifecycle()
     
     LaunchedEffect(Unit) {
         mapViewModel.centerMapEvent.collect {
             try {
-                // Get current user location
                 val currentUserLocation = mapViewModel.uiState.value.userLocation
                 
                 if (currentUserLocation != null) {
-                    val googleLatLng = GoogleLatLng(currentUserLocation.latitude, currentUserLocation.longitude)
-                    // Use USER_LOCATION_ZOOM for better view of user location
-                    val zoom = USER_LOCATION_ZOOM.toFloat()
-                    
-                    // Move camera directly with faster animation
-                    cameraPositionState.animate(
-                        update = CameraUpdateFactory.newLatLngZoom(googleLatLng, zoom),
-                        durationMs = 500
+                    val geoPoint = GeoPoint(currentUserLocation.latitude, currentUserLocation.longitude)
+                    val newCameraState = CameraState(
+                        geoPoint = geoPoint,
+                        zoom = USER_LOCATION_ZOOM.toFloat()
                     )
+                    onCameraChange(newCameraState)
                 } else {
-                    // Try to refresh location one more time with shorter delay
                     mapViewModel.refreshUserLocation()
                     kotlinx.coroutines.delay(300)
                     
                     val refreshedLocation = mapViewModel.uiState.value.userLocation
                     if (refreshedLocation != null) {
-                        val googleLatLng = GoogleLatLng(refreshedLocation.latitude, refreshedLocation.longitude)
-                        // Use USER_LOCATION_ZOOM for better view of user location
-                        val zoom = USER_LOCATION_ZOOM.toFloat()
-                        
-                        // Move camera directly with faster animation
-                        cameraPositionState.animate(
-                            update = CameraUpdateFactory.newLatLngZoom(googleLatLng, zoom),
-                            durationMs = 500
+                        val geoPoint = GeoPoint(refreshedLocation.latitude, refreshedLocation.longitude)
+                        val newCameraState = CameraState(
+                            geoPoint = geoPoint,
+                            zoom = USER_LOCATION_ZOOM.toFloat()
                         )
+                        onCameraChange(newCameraState)
                     } else {
                         Toast.makeText(context, "User location not available. Please check location permissions and GPS.", Toast.LENGTH_LONG).show()
                     }
@@ -136,23 +142,23 @@ private fun HandleCenterMapEvent(
 @Composable
 private fun HandleGoToPointEvent(
     mapViewModel: MapViewModel,
-    cameraPositionState: CameraPositionState
+    cameraState: CameraState,
+    onCameraChange: (CameraState) -> Unit
 ) {
-    val context = LocalContext.current
-    
     LaunchedEffect(Unit) {
         mapViewModel.goToPointEvent.collect { latLng ->
             try {
-                val googleLatLng = GoogleLatLng(latLng.latitude, latLng.longitude)
+                val geoPoint = GeoPoint(latLng.latitude, latLng.longitude)
                 
                 // Update clicked location for marker
                 mapViewModel.updateClickedLocation(latLng)
                 
-                // Move camera to the selected location with zoom 15
-                cameraPositionState.animate(
-                    update = CameraUpdateFactory.newLatLngZoom(googleLatLng, 15f),
-                    durationMs = 500
+                // Move camera to the selected location
+                val newCameraState = CameraState(
+                    geoPoint = geoPoint,
+                    zoom = 15f
                 )
+                onCameraChange(newCameraState)
             } catch (e: Exception) {
                 // Handle error silently
             }
@@ -161,157 +167,49 @@ private fun HandleGoToPointEvent(
 }
 
 @Composable
-private fun CenterMapOnUserLocation(
-    userGoogleLatLng: GoogleLatLng?,
-    lastClickedGoogleLatLng: GoogleLatLng?,
-    mapZoom: Double?,
-    mapViewModel: MapViewModel
-) {
-    LaunchedEffect(userGoogleLatLng, lastClickedGoogleLatLng) {
-        if (lastClickedGoogleLatLng != null) {
-            // Center on marker location
-            val zoom = mapZoom?.toFloat() ?: DEFAULT_MAP_ZOOM.toFloat()
-            mapViewModel.updateMapZoom(zoom.toDouble())
-            mapViewModel.setLoadingFinished()
-        } else if (userGoogleLatLng != null) {
-            // Center on user location
-            mapViewModel.updateMapZoom(USER_LOCATION_ZOOM)
-            mapViewModel.setLoadingFinished()
-        } else {
-            // Set default location
-            mapViewModel.updateMapZoom(WORLD_MAP_ZOOM)
-            mapViewModel.setLoadingFinished()
-        }
-    }
-}
-
-@Composable
-private fun DisplayGoogleMap(
-    lastClickedGoogleLatLng: GoogleLatLng?,
-    userGoogleLatLng: GoogleLatLng?,
+private fun DisplayOSMMap(
+    lastClickedGeoPoint: GeoPoint?,
+    userGeoPoint: GeoPoint?,
     isDarkTheme: Boolean,
     isPlaying: Boolean,
-    onMapClick: (GoogleLatLng) -> Unit,
+    onMapClick: (GeoPoint) -> Unit,
     mapViewModel: MapViewModel,
-    cameraPositionState: CameraPositionState
+    cameraState: CameraState,
+    onCameraChange: (CameraState) -> Unit
 ) {
-    val uiState by mapViewModel.uiState.collectAsStateWithLifecycle()
-    val context = LocalContext.current
+    val markerState = rememberMarkerState()
     
-    // Load map style based on theme
-    val mapStyleOptions = remember(isDarkTheme) {
-        if (isDarkTheme) {
-            MapStyleOptions.loadRawResourceStyle(context, R.raw.map_style_dark)
-        } else {
-            null
-        }
-    }
-    
-    // Determine initial camera position
-    val initialCameraPosition = remember(uiState.mapZoom, uiState.mapLatitude, uiState.mapLongitude, lastClickedGoogleLatLng, userGoogleLatLng) {
-        val mapLat = uiState.mapLatitude
-        val mapLng = uiState.mapLongitude
-        
-        when {
-            lastClickedGoogleLatLng != null -> CameraPosition.fromLatLngZoom(
-                lastClickedGoogleLatLng, 
-                (uiState.mapZoom ?: DEFAULT_MAP_ZOOM).toFloat()
-            )
-            userGoogleLatLng != null -> CameraPosition.fromLatLngZoom(
-                userGoogleLatLng, 
-                (uiState.mapZoom ?: DEFAULT_MAP_ZOOM).toFloat()
-            )
-            mapLat != null && mapLng != null -> CameraPosition.fromLatLngZoom(
-                GoogleLatLng(mapLat, mapLng), 
-                (uiState.mapZoom ?: DEFAULT_MAP_ZOOM).toFloat()
-            )
-            else -> CameraPosition.fromLatLngZoom(
-                GoogleLatLng(0.0, 0.0), 
-                (uiState.mapZoom ?: WORLD_MAP_ZOOM).toFloat()
-            )
+    // Update marker position when clicked location changes
+    LaunchedEffect(lastClickedGeoPoint) {
+        lastClickedGeoPoint?.let { point ->
+            markerState.geoPoint = point
         }
     }
 
-    // Save zoom level and position when camera position changes, but with debouncing to prevent shaking
-    var lastSavedPosition by remember { mutableStateOf<CameraPosition?>(null) }
-    
-    LaunchedEffect(cameraPositionState.position) {
-        val position = cameraPositionState.position
-        val lastSaved = lastSavedPosition
-        
-        // Only save if position changed significantly (to prevent shaking)
-        if (lastSaved == null || 
-            kotlin.math.abs(position.zoom - lastSaved.zoom) > 0.1f ||
-            kotlin.math.abs(position.target.latitude - lastSaved.target.latitude) > 0.0001 ||
-            kotlin.math.abs(position.target.longitude - lastSaved.target.longitude) > 0.0001) {
-            
-            // Add small delay to debounce rapid changes
-            kotlinx.coroutines.delay(100)
-            
-            // Check if position is still the same after delay
-            if (cameraPositionState.position == position) {
-                mapViewModel.updateMapZoom(position.zoom.toDouble())
-                mapViewModel.updateMapPosition(
-                    position.target.latitude,
-                    position.target.longitude
-                )
-                lastSavedPosition = position
-            }
-        }
-    }
-
-    // Set initial position if camera is at default position or update when zoom changes
-    LaunchedEffect(initialCameraPosition) {
-        val currentPosition = cameraPositionState.position
-        val defaultPosition = CameraPosition.fromLatLngZoom(GoogleLatLng(0.0, 0.0), 1f)
-        
-        if (currentPosition == defaultPosition) {
-            cameraPositionState.position = initialCameraPosition
-        } else {
-            // Only update if the saved position is different from current
-            val savedPosition = GoogleLatLng(
-                uiState.mapLatitude ?: 0.0,
-                uiState.mapLongitude ?: 0.0
-            )
-            val currentTarget = currentPosition.target
-            
-            if (savedPosition.latitude != 0.0 && savedPosition.longitude != 0.0 &&
-                (savedPosition.latitude != currentTarget.latitude || 
-                 savedPosition.longitude != currentTarget.longitude)) {
-                val newPosition = CameraPosition.fromLatLngZoom(
-                    savedPosition,
-                    (uiState.mapZoom ?: DEFAULT_MAP_ZOOM).toFloat()
-                )
-                cameraPositionState.position = newPosition
-            }
-        }
-    }
-
-    // Update marker when lastClickedLocation changes
-    LaunchedEffect(uiState.lastClickedLocation) {
-        // This will trigger recomposition when lastClickedLocation changes
-    }
-
-    GoogleMap(
+    OpenStreetMap(
         modifier = Modifier.fillMaxSize(),
-        cameraPositionState = cameraPositionState,
-        onMapClick = onMapClick,
+        cameraState = cameraState,
+        onMapClick = { geoPoint ->
+            onMapClick(geoPoint)
+        },
+        onMapCameraMove = { newCameraState ->
+            onCameraChange(newCameraState)
+        },
         properties = MapProperties(
-            isMyLocationEnabled = true,
-            mapType = MapType.NORMAL,
-            mapStyleOptions = mapStyleOptions
-        ),
-        uiSettings = MapUiSettings(
-            zoomControlsEnabled = false,
-            myLocationButtonEnabled = false,
-            mapToolbarEnabled = false,
-            compassEnabled = true
+            isMultiTouchEnabled = true,
+            isFlingEnabled = true,
+            isZoomEnabled = true,
+            tileSources = if (isDarkTheme) {
+                TileSourceFactory.WIKIMEDIA
+            } else {
+                TileSourceFactory.MAPNIK
+            }
         )
     ) {
         // Show clicked location marker
-        lastClickedGoogleLatLng?.let { location ->
+        lastClickedGeoPoint?.let { location ->
             Marker(
-                state = MarkerState(position = location),
+                state = MarkerState(geoPoint = location),
                 title = "Selected Location",
                 snippet = "Lat: ${location.latitude}, Lng: ${location.longitude}"
             )
